@@ -34,7 +34,10 @@
 #include <vector>
 #include <sbpl/discrete_space_information/environment.h>
 #include <sbpl/utils/utils.h>
-
+#include <sbpl/discrete_space_information/environment_mha.h>    //fahad
+#include <visualization_msgs/Marker.h>  //fahad
+#include <random>
+ #include <ros/ros.h>   //fahad
 //eight-connected grid
 #define NAVXYTHETALAT_DXYWIDTH 8
 #define ENVNAVXYTHETALAT_DEFAULTOBSTHRESH 254	//see explanation of the value below
@@ -176,7 +179,7 @@ public:
  *         Maxim Likhachev and Dave Ferguson, " Planning Long Dynamically-Feasible
  *         Maneuvers for Autonomous Vehicles", IJRR'09
  */
-class EnvironmentNAVXYTHETALATTICE : public DiscreteSpaceInformation
+class EnvironmentNAVXYTHETALATTICE : public EnvironmentMHA
 {
 public:
     EnvironmentNAVXYTHETALATTICE();
@@ -225,11 +228,17 @@ public:
      */
     virtual int GetGoalHeuristic(int stateID) = 0;
 
+    //fahad
+    virtual int GetGoalHeuristic(int q_id, int stateID, int stateID_front) = 0;
+
     /**
      * \brief see comments on the same function in the parent class
      */
     virtual int GetStartHeuristic(int stateID) = 0;
 
+    virtual int GetStartHeuristic(int q_id, int stateID, int stateID_front) = 0;     //fahad
+
+    // virtual void VisualizeState(int stateID) = 0;
     /**
      * \brief see comments on the same function in the parent class
      */
@@ -244,6 +253,7 @@ public:
      * \brief see comments on the same function in the parent class
      */
     virtual void GetSuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV);
+    virtual void GetSuccs(int q_id, int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV);   //fahad
     virtual void GetLazySuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost);
     virtual void GetSuccsWithUniqueIds(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV);
     virtual void GetLazySuccsWithUniqueIds(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost);
@@ -461,6 +471,8 @@ protected:
 
     virtual void GetSuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV,
                           std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL) = 0;
+    virtual void GetSuccs(int q_id, int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV,  //fahad
+                          std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL) = 0;
     virtual void GetLazySuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost, std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL) = 0;
     virtual void GetSuccsWithUniqueIds(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL) = 0;
     virtual void GetLazySuccsWithUniqueIds(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost, std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL) = 0;
@@ -536,6 +548,7 @@ public:
      * \brief returns all predecessors states and corresponding costs of actions
      */
     virtual void GetPreds(int TargetStateID, std::vector<int>* PredIDV, std::vector<int>* CostV);
+    virtual void GetPreds(int q_id, int TargetStateID, std::vector<int>* PredIDV, std::vector<int>* CostV);   //fahad
 
     /**
      * \brief returns all successors states, costs of corresponding actions
@@ -545,6 +558,8 @@ public:
      */
     virtual void GetSuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV,
                           std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL);
+    virtual void GetSuccs(int q_id, int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV,
+                          std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL);   //fahad
 
     virtual void GetLazySuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost, std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL);
     virtual void GetSuccsWithUniqueIds(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<EnvNAVXYTHETALATAction_t*>* actionindV = NULL);
@@ -587,11 +602,18 @@ public:
      */
     virtual int GetGoalHeuristic(int stateID);
 
+
+    //fahad
+    virtual int GetGoalHeuristic(int q_id, int stateID, int stateID_front);
     /**
      * \brief see comments on the same function in the parent class
      */
     virtual int GetStartHeuristic(int stateID);
 
+    //fahad
+    virtual int GetStartHeuristic(int q_id, int stateID, int stateID_front);
+
+    // virtual void VisualizeState(int stateID);
     /**
      * \brief see comments on the same function in the parent class
      */
@@ -625,6 +647,7 @@ protected:
     virtual void InitializeEnvironment();
 
     virtual void PrintHashTableHist(FILE* fOut);
+    ros::Publisher vis_pub_; //fahad visualizee
 };
 
 #endif

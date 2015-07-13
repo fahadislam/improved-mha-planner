@@ -28,27 +28,39 @@
  */
 #include <sbpl/planners/mha_planner.h>
 #include <boost/math/distributions.hpp>
+#include <stdio.h>
 using namespace boost::math;
 using namespace std;
 
 MHAPlanner::MHAPlanner(EnvironmentMHA *environment, int num_heurs,
-                       bool bSearchForward) :
+                       bool bSearchForward, bool biDirectional) :
   params(0.0) {
-  bforwardsearch = bSearchForward;
+  bforwardsearch = bSearchForward; 
+  bidirectional = biDirectional;    
   env_ = environment;
   replan_number = 0;
 
   num_heuristics = num_heurs;
   heaps.resize(num_heuristics);
+  heapss[0].resize(num_heuristics); //fahad
+  heapss[1].resize(num_heuristics); 
   incons.resize(num_heuristics);
   states.resize(num_heuristics);
+  statess[0].resize(num_heuristics);    //fahad
+  statess[1].resize(num_heuristics);    
+  intersect_flag = 0;   //fahad
+  best_path_length == INFINITECOST;
 
   use_lazy_ = false;
 
   // Meta A*
   //max_edge_cost = 60; //TODO: This must be obtained from the environment
   queue_best_h_meta_heaps.resize(num_heuristics);
+  queue_best_h_meta_heapss[0].resize(num_heuristics);   //fahad
+  queue_best_h_meta_heapss[1].resize(num_heuristics);
   best_h_states.resize(num_heuristics);
+  best_h_statess[0].resize(num_heuristics);   //fahad
+  best_h_statess[1].resize(num_heuristics);
   max_heur_dec.resize(num_heuristics, 0);
 
   if (num_heuristics == 4) {
@@ -87,26 +99,26 @@ MHAPlanner::~MHAPlanner() {
   gsl_rng_free(gsl_rand);
 }
 
-MHAState *MHAPlanner::GetState(int q_id, int id) {
+MHAState *MHAPlanner::GetState(int bf, int q_id, int id) {  //fahad
   assert(q_id < num_heuristics);
 
   //if this stateID is out of bounds of our state vector then grow the list
-  if (id >= int(states[q_id].size())) {
-    for (int i = states[q_id].size(); i <= id; i++) {
-      states[q_id].push_back(NULL);
+  if (id >= int(statess[bf][q_id].size())) {
+    for (int i = statess[bf][q_id].size(); i <= id; i++) {
+      statess[bf][q_id].push_back(NULL);
     }
   }
 
   //if we have never seen this state then create one
-  if (states[q_id][id] == NULL) {
-    states[q_id][id] = new MHAState();
-    states[q_id][id]->id = id;
-    states[q_id][id]->replan_number = -1;
-    states[q_id][id]->q_id = q_id;
+  if (statess[bf][q_id][id] == NULL) {
+    statess[bf][q_id][id] = new MHAState();
+    statess[bf][q_id][id]->id = id;
+    statess[bf][q_id][id]->replan_number = -1;
+    statess[bf][q_id][id]->q_id = q_id;
   }
 
   //initialize the state if it hasn't been for this call to replan
-  MHAState *s = states[q_id][id];
+  MHAState *s = statess[bf][q_id][id];
 
   if (s->replan_number != replan_number) {
     s->g = INFINITECOST;
@@ -125,10 +137,18 @@ MHAState *MHAPlanner::GetState(int q_id, int id) {
     }
 
     //compute heuristics
-    if (bforwardsearch) {
-      s->h = env_->GetGoalHeuristic(q_id, s->id);
+    if (bf == 0) {    //fahad
+      if (id == 1 || id == 2)
+        s->h = env_->GetGoalHeuristic(q_id, s->id, id); //todo
+      else
+        s->h = env_->GetGoalHeuristic(q_id, s->id, min_states[!bf]->id);    //fahad
+      // printf("goal heuristic for state %d is %d\n", id, s->h);
     } else {
-      s->h = env_->GetStartHeuristic(q_id, s->id);
+      if (id == 1 || id == 2)
+        s->h = env_->GetStartHeuristic(q_id, s->id, id);
+      else
+        s->h = env_->GetStartHeuristic(q_id, s->id, min_states[!bf]->id);    //fahad
+      // printf("start heuristic for state %d is %d\n", id, s->h);
     }
 
   }
@@ -136,27 +156,27 @@ MHAState *MHAPlanner::GetState(int q_id, int id) {
   return s;
 }
 
-BestHState *MHAPlanner::GetBestHState(int q_id, int id) {
+BestHState *MHAPlanner::GetBestHState(int backward_forward, int q_id, int id) {
   assert(q_id < num_heuristics);
 
   //if this stateID is out of bounds of our state vector then grow the list
-  if (id >= int(best_h_states[q_id].size())) {
-    for (int i = best_h_states[q_id].size(); i <= id; i++) {
-      best_h_states[q_id].push_back(NULL);
+  if (id >= int(best_h_statess[backward_forward][q_id].size())) {
+    for (int i = best_h_statess[backward_forward][q_id].size(); i <= id; i++) {
+      best_h_statess[backward_forward][q_id].push_back(NULL);
     }
   }
 
   //if we have never seen this state then create one
-  if (best_h_states[q_id][id] == NULL) {
-    best_h_states[q_id][id] = new BestHState();
-    best_h_states[q_id][id]->id = id;
-    best_h_states[q_id][id]->heapindex = 0;
+  if (best_h_statess[backward_forward][q_id][id] == NULL) {
+    best_h_statess[backward_forward][q_id][id] = new BestHState();
+    best_h_statess[backward_forward][q_id][id]->id = id;
+    best_h_statess[backward_forward][q_id][id]->heapindex = 0;
   }
 
-  return best_h_states[q_id][id];
+  return best_h_statess[backward_forward][q_id][id];
 }
 
-void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
+void MHAPlanner::ExpandState(int backward_forward, int q_id, MHAState *parent) {      // pass bool BorF a argument
   bool print = false; //parent->id == 12352;
 
   if (print) {
@@ -172,11 +192,11 @@ void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
     if (bforwardsearch) {
       env_->GetLazySuccs(q_id, parent->id, &children, &costs, &isTrueCost);
     } else {
-      env_->GetLazyPreds(q_id, parent->id, &children, &costs, &isTrueCost);
+      // env_->GetLazyPreds(q_id, parent->id, &children, &costs, &isTrueCost);
     }
 
   } else {
-    if (bforwardsearch) {
+    if (backward_forward == 0) {    //fahad
       env_->GetSuccs(q_id, parent->id, &children, &costs);
     } else {
       env_->GetPreds(q_id, parent->id, &children, &costs);
@@ -193,11 +213,11 @@ void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
     //iterate through children of the parent
     for (int i = 0; i < (int)children.size(); i++) {
       //printf("  succ %d\n",children[i]);
-      MHAState *child = GetState(q_id, children[i]);
-      insertLazyList(q_id, child, parent, costs[i], isTrueCost[i]);
+      MHAState *child = GetState(0, q_id, children[i]);
+      insertLazyList(0, q_id, child, parent, costs[i], isTrueCost[i]);
 
       //Meta-A*
-      BestHState *best_h_state = GetBestHState(q_id, child->id);
+      BestHState *best_h_state = GetBestHState(0, q_id, child->id);
       CKey key;
       key.key[0] = child->h;
 
@@ -219,22 +239,36 @@ void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
       //printf("  succ %d\n",children[i]);
       for (int j = 0; j < num_heuristics; ++j) {
         // if (use_anchor && q_id == 0 && j != 0) continue;
-        MHAState *child = GetState(j, children[i]);
-        insertLazyList(j, child, parent, costs[i], isTrueCost[i]);
+        MHAState *child = GetState(backward_forward, j, children[i]);
+        insertLazyList(backward_forward, j, child, parent, costs[i], isTrueCost[i]);
+        //check if child is updated (g value)
+        //temp code fahad
+        if (bidirectional)
+        {
+          MHAState *temp_state = GetState(!backward_forward, j, children[i]);
+          if (child->g + temp_state->g < INFINITECOST /*&& intersect_flag == 0*/)
+          {
+            printf("INTERSECTION\n");
+            intersection_state_id = children[i];
+            intersect_flag = 1;
+            if (child->g + temp_state->g < best_path_length)
+              best_path_length = child->g + temp_state->g;
+          }          
+        }
 
         //Meta-A*
-        BestHState *best_h_state = GetBestHState(j, child->id);
+        BestHState *best_h_state = GetBestHState(backward_forward, j, child->id);
         CKey key;
         key.key[0] = child->h;
 
         // Assuming never need to update h-values once computed
         if (best_h_state->heapindex == 0) {
-          //printf("Inserting in %d with %d\n", j, key.key[0]);
-          queue_best_h_meta_heaps[j].insertheap(best_h_state, key);
+          // printf("Inserting in %d with %d\n", j, key.key[0]);
+          queue_best_h_meta_heapss[backward_forward][j].insertheap(best_h_state, key);
         }
 
         // TODO: Remove this after verifying it works
-        key = queue_best_h_meta_heaps[j].getminkeyheap();
+        key = queue_best_h_meta_heapss[backward_forward][j].getminkeyheap();
         int best_h = key.key[0];
         assert(best_h >= 0);
 
@@ -266,15 +300,15 @@ void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
 
   // Meta-A*
   //queue_expands[q_id]++;
-  BestHState *best_h_state = GetBestHState(q_id, parent->id);
-  queue_best_h_meta_heaps[q_id].deleteheap(best_h_state);
+  BestHState *best_h_state = GetBestHState(backward_forward, q_id, parent->id);
+  queue_best_h_meta_heapss[backward_forward][q_id].deleteheap(best_h_state);
 
   // delete from the other queues as well if SMHA.
   if (planner_type == mha_planner::PlannerType::SMHA) {
     for (int j = 0; j < num_heuristics; ++j) {
       if (j != q_id) {
-        BestHState *best_h_state_to_del = GetBestHState(j, parent->id);
-        queue_best_h_meta_heaps[j].deleteheap(best_h_state_to_del);
+        BestHState *best_h_state_to_del = GetBestHState(backward_forward, j, parent->id);
+        queue_best_h_meta_heapss[backward_forward][j].deleteheap(best_h_state_to_del);
       }
     }
   }
@@ -319,7 +353,7 @@ void MHAPlanner::ExpandState(int q_id, MHAState *parent) {
 //state is at the front of the open list
 //it's minimum f-value is an underestimate (the edge cost from the parent is a guess and needs to be evaluated properly)
 //it hasn't been expanded yet this iteration
-void MHAPlanner::EvaluateState(int q_id, MHAState *state) {
+void MHAPlanner::EvaluateState(int backward_forward, int q_id, MHAState *state) {
   if (!use_lazy_) {
     ROS_ERROR("planner is set to not use lazy, but we got successors without a true cost!");
     exit(1);
@@ -335,7 +369,7 @@ void MHAPlanner::EvaluateState(int q_id, MHAState *state) {
 
   int trueCost;
 
-  if (bforwardsearch) {
+  if (backward_forward == 0) {  //fahad
     trueCost = env_->GetTrueCost(parent->id, state->id);
   } else {
     trueCost = env_->GetTrueCost(state->id, parent->id);
@@ -347,26 +381,26 @@ void MHAPlanner::EvaluateState(int q_id, MHAState *state) {
   // Meta-A*
   if (meta_search_type == mha_planner::MetaSearchType::META_A_STAR &&
       trueCost < 0 && state->lazyList.empty()) {
-    BestHState *best_h_state = GetBestHState(q_id, state->id);
+    BestHState *best_h_state = GetBestHState(0, q_id, state->id);
     queue_best_h_meta_heaps[q_id].deleteheap(best_h_state);
 
     // delete from the other queues as well if SMHA.
     if (planner_type == mha_planner::PlannerType::SMHA) {
       for (int j = 0; j < num_heuristics; ++j) {
         if (j != q_id) {
-          BestHState *best_h_state_to_del = GetBestHState(j, state->id);
-          queue_best_h_meta_heaps[j].deleteheap(best_h_state_to_del);
+          BestHState *best_h_state_to_del = GetBestHState(backward_forward, j, state->id);
+          queue_best_h_meta_heapss[backward_forward][j].deleteheap(best_h_state_to_del);
         }
       }
     }
   }
 
   if (planner_type == mha_planner::PlannerType::IMHA) {
-    getNextLazyElement(q_id, state);
+    getNextLazyElement(0, q_id, state);
 
     if (trueCost >
         0) { //if the evaluated true cost is valid (positive), insert it into the lazy list
-      insertLazyList(q_id, state, parent, trueCost, true);
+      insertLazyList(0, q_id, state, parent, trueCost, true);
 
       //DTS
       if (state->h < queue_best_h_dts[q_id]) {
@@ -376,12 +410,12 @@ void MHAPlanner::EvaluateState(int q_id, MHAState *state) {
     }
   } else {
     for (int j = 0; j < num_heuristics; ++j) {
-      MHAState *tmp_state = GetState(j, state->id);
-      getNextLazyElement(j, tmp_state);
+      MHAState *tmp_state = GetState(backward_forward, j, state->id);
+      getNextLazyElement(backward_forward, j, tmp_state);
 
       if (trueCost >
           0) { //if the evaluated true cost is valid (positive), insert it into the lazy list
-        insertLazyList(j, tmp_state, parent, trueCost, true);
+        insertLazyList(backward_forward, j, tmp_state, parent, trueCost, true);
 
         //DTS
         if (tmp_state->h < queue_best_h_dts[j]) {
@@ -422,7 +456,7 @@ void MHAPlanner::EvaluateState(int q_id, MHAState *state) {
 }
 
 //this should only be used with EvaluateState since it is assuming state hasn't been expanded yet (only evaluated)
-void MHAPlanner::getNextLazyElement(int q_id, MHAState *state) {
+void MHAPlanner::getNextLazyElement(int backward_forward, int q_id, MHAState *state) {
   if (state->lazyList.empty()) {
     state->g = INFINITECOST;
     state->best_parent = NULL;
@@ -443,10 +477,10 @@ void MHAPlanner::getNextLazyElement(int q_id, MHAState *state) {
     }
   }
 
-  putStateInHeap(q_id, state);
+  putStateInHeap(backward_forward, q_id, state);
 }
 
-void MHAPlanner::insertLazyList(int q_id, MHAState *state, MHAState *parent,
+void MHAPlanner::insertLazyList(int backward_forward, int q_id, MHAState *state, MHAState *parent,
                                 int edgeCost, bool isTrueCost) {
   bool print = false; //state->id == 12352 || parent->id == 12352;
 
@@ -499,11 +533,11 @@ void MHAPlanner::insertLazyList(int q_id, MHAState *state, MHAState *parent,
              state->id, state->g, parent->v, edgeCost, isTrueCost);
     }
 
-    putStateInHeap(q_id, state);
+    putStateInHeap(backward_forward, q_id, state);
   }
 }
 
-void MHAPlanner::putStateInHeap(int q_id, MHAState *state) {
+void MHAPlanner::putStateInHeap(int backward_forward, int q_id, MHAState *state) {      // g[0], h[0] so on
   if (UpdateGoal(state)) {
     return;
   }
@@ -570,9 +604,9 @@ void MHAPlanner::putStateInHeap(int q_id, MHAState *state) {
 
     //if the state is already in the heap, just update its priority
     if (state->heapindex != 0) {
-      heaps[q_id].updateheap(state, key);
+      heapss[backward_forward][q_id].updateheap(state, key);
     } else { //otherwise add it to the heap
-      heaps[q_id].insertheap(state, key);
+      heapss[backward_forward][q_id].insertheap(state, key);
     }
   }
   //if the state has already been expanded once for this iteration
@@ -607,14 +641,20 @@ bool MHAPlanner::UpdateGoal(MHAState *state) {
 int MHAPlanner::ImprovePath() {
 
   //if the goal <= min key in any list whose min key <= min key0 * w2
-
+  intersect_flag = 0;     // to solve multiple requests problem
   //expand states until done
   int expands = 0;
   bool spin_again = false;
   int q_id = 0;
-  CKey min_key = heaps[0].getminkeyheap();
+
+  CKey min_key = heaps[0].getminkeyheap(); 
+
+  //fahad
+  CKey min_key_fw = heapss[0][0].getminkeyheap(); //fwd
+  CKey min_key_bw = heapss[1][0].getminkeyheap(); //bwd
 
 
+  static int anchor_vals[2] = {0};
   static int anchor_val = 0;
 
   // MHA*++ and Unconstrained-MHA*
@@ -623,16 +663,19 @@ int MHAPlanner::ImprovePath() {
   //        (goal_state->g > anchor_val || !goal_state->isTrueCost) &&
   //        (goal_state->v > anchor_val) &&
   //        !outOfTime()) {
-
-  while (!heaps[0].emptyheap() &&
-         min_key.key[0] < INFINITECOST &&
+  int backward_forward = 0;
+  while (!heapss[0][0].emptyheap() && !heapss[1][0].emptyheap() //fahad
+         && min_key_fw.key[0] < INFINITECOST && min_key_bw.key[0] < INFINITECOST &&
          !outOfTime()) {
-
 
     // Termination for different planners
     bool terminate = true;
-
+    
     switch (mha_type) {
+
+    //new termination critera     fahad
+    // switch between backward and forward search  (toggle that flag)
+
     case mha_planner::MHAType::ORIGINAL: {
 
       if ((goal_state->g > int(anchor_eps * inflation_eps * anchor_val) ||
@@ -646,12 +689,16 @@ int MHAPlanner::ImprovePath() {
 
     case mha_planner::MHAType::PLUS:
     case mha_planner::MHAType::UNCONSTRAINED: {
+      if (bidirectional)
+        backward_forward = !backward_forward;   
+      if ((goal_states[backward_forward]->g > anchor_vals[backward_forward] ||  //todo
+           !goal_states[backward_forward]->isTrueCost) && (goal_states[backward_forward]->v > anchor_vals[backward_forward])) {
+        // if (intersect_flag == 0)
+          terminate = false;
 
-      if ((goal_state->g > anchor_val ||
-           !goal_state->isTrueCost) && (goal_state->v > anchor_val)) {
-        terminate = false;
+        if (intersect_flag == 1 && best_path_length < max(anchor_vals[backward_forward],anchor_vals[!backward_forward]))
+          terminate = true;
       }
-
       break;
     }
 
@@ -688,8 +735,8 @@ int MHAPlanner::ImprovePath() {
     // }
 
     if (!spin_again || meta_search_type != mha_planner::MetaSearchType::DTS) {
-      q_id = GetBestHeuristicID();
-      queue_expands[q_id]++;
+      q_id = GetBestHeuristicID(backward_forward);
+      queue_expandss[backward_forward][q_id]++;
       //printf("chose queue %d\n",q_id);
     } else {
       //printf("spin again %d\n",q_id);
@@ -697,9 +744,14 @@ int MHAPlanner::ImprovePath() {
 
 
     MHAState *state;
-
-    CKey anchor_min_key = heaps[0].getminkeyheap();
-    CKey best_q_min_key = heaps[q_id].getminkeyheap();
+    CKey anchor_min_key, best_q_min_key;
+    CKey anchor_min_keys[2], best_q_min_keys[2];
+    
+    for (int jj = 0; jj < 2; jj++)  //bbbb
+    {
+      anchor_min_keys[jj] = heapss[jj][0].getminkeyheap();     //heaps[BorF][0].getminkeyheap();   //fahad 
+      best_q_min_keys[jj] = heapss[jj][q_id].getminkeyheap();      //similarly probably
+    } 
 
     switch (mha_type) {
     case mha_planner::MHAType::ORIGINAL: {
@@ -713,43 +765,74 @@ int MHAPlanner::ImprovePath() {
         //std::cin.get();
         q_id = 0;
       } else if (q_id != 0) {
-        state = (MHAState *)heaps[q_id].getminheap();
+        state = (MHAState *)heaps[q_id].getminheap();      
       }
 
       break;
     }
 
-    case mha_planner::MHAType::PLUS: {
+    case mha_planner::MHAType::PLUS: {  //fahad
       // Improved MHA* - MHA*++ (g+h < g_anchor + w*h_anchor)
-      state = (MHAState *)heaps[q_id].getminheap();
-      MHAState *anchor_state = GetState(0, state->id);
-      anchor_val = max(anchor_val, int(anchor_min_key.key[0]));
+
+      //update heuristics fahad
+      // static int count = 0;
+      // count++;
+      // if (count > 10 && !backward_forward){
+        // printf("updating heuristics %d\n", backward_forward);
+      if (bidirectional)   //update heuristics for bidirectionalsearch
+        if (q_id)
+          for (int j=0; j < heapss[backward_forward][q_id].currentsize; j++)      //q_id issue
+          {
+            state = (MHAState *)heapss[backward_forward][q_id].heap[j+1].heapstate;     //why???
+        
+            // printf("idddddddddddd %d %d\n", min_states[!backward_forward]->id, state->id);
+            if (backward_forward)
+            {
+              // printf("goal id %d state id %d \n", goal_state_id, state->id);
+              state->h = env_->GetGoalHeuristic(q_id, state->id, min_states[!backward_forward]->id); 
+            }
+            else
+              state->h = env_->GetStartHeuristic(q_id, state->id, min_states[!backward_forward]->id); 
+
+            CKey key;
+            key.key[0] = state->h;
+            // // printf("key %d\n", key.key[0]);
+            // state->heapind[env_num]=0;     //to be fixed
+            heapss[backward_forward][q_id].updateheap(state, key);
+          }    
+      // count = 0;}  
+
+
+
+      state = (MHAState *)heapss[backward_forward][q_id].getminheap();
+      MHAState *anchor_state = GetState(backward_forward, 0, state->id);
+      anchor_vals[backward_forward] = max(anchor_vals[backward_forward], int(anchor_min_keys[backward_forward].key[0]));
       int uhs_val = anchor_state->g + anchor_state->h;
-      bool mha_lite_anchor = uhs_val > anchor_val;
+      bool mha_lite_anchor = uhs_val > anchor_vals[backward_forward];
 
       if (mha_lite_anchor) {
         ROS_WARN("Anchor state ID:%d   G:%d    H:%d\n", anchor_state->id,
                  anchor_state->g, anchor_state->h);
         ROS_WARN("Anchors aweigh! chosen queue (%d) has f-val %d, anchor-h %d, minkey %ld, and anchor has min key %d",
                  q_id, anchor_state->g + anchor_state->h,
-                 int(inflation_eps * anchor_state->h), best_q_min_key.key[0],
-                 anchor_val);
+                 int(inflation_eps * anchor_state->h), best_q_min_keys[backward_forward].key[0],
+                 anchor_vals[backward_forward]);
         //std::cin.get();
-
+        
         // Get best state from eps-focal list. There will be atleast one state because FOCAL is a subset of
         // EPS-FOCAL and it contains the anchor state for sure.
         int best_heur = INFINITECOST;
 
-        for (int kk = 1; kk <= heaps[0].currentsize; ++kk) {
-          MHAState *sa = (MHAState *)heaps[0].heap[kk].heapstate;
+        for (int kk = 1; kk <= heapss[backward_forward][0].currentsize; ++kk) {
+          MHAState *sa = (MHAState *)heapss[backward_forward][0].heap[kk].heapstate;
 
           int uhs_val = int(sa->g + sa->h);
 
-          if (uhs_val > anchor_val) {
+          if (uhs_val > anchor_vals[backward_forward]) {
             continue;  // Not in EPS-FOCAL
           }
 
-          MHAState *uhs_state = GetState(q_id, sa->id);
+          MHAState *uhs_state = GetState(backward_forward, q_id, sa->id);
 
           // Skip this state if it was already expanded inadmissibly
           if (uhs_state->iteration_closed == search_iteration) {
@@ -771,7 +854,7 @@ int MHAPlanner::ImprovePath() {
     case mha_planner::MHAType::FOCAL: {
       // Improved MHA* - Focal-MHA* (g+h < w*(g_anchor + h_anchor))
       state = (MHAState *)heaps[q_id].getminheap();
-      MHAState *anchor_state = GetState(0, state->id);
+      MHAState *anchor_state = GetState(0, 0, state->id);
       anchor_val = max(anchor_val, int(anchor_min_key.key[0]));
       int uhs_val = anchor_state->g + anchor_state->h;
       bool mha_lite_anchor = uhs_val > inflation_eps * anchor_val;
@@ -798,7 +881,7 @@ int MHAPlanner::ImprovePath() {
             continue;  // Not in EPS-FOCAL
           }
 
-          MHAState *uhs_state = GetState(q_id, sa->id);
+          MHAState *uhs_state = GetState(0, q_id, sa->id);
 
           // Skip this state if it was already expanded inadmissibly
           if (uhs_state->iteration_closed == search_iteration) {
@@ -841,7 +924,7 @@ int MHAPlanner::ImprovePath() {
       state = (MHAState *)heaps[q_id].getminheap();
     }
 
-    }
+    }   //switch end
 
 
 
@@ -849,21 +932,22 @@ int MHAPlanner::ImprovePath() {
 
     if (print) {
       for (int ii = 0; ii < num_heuristics; ++ii) {
-        printf("%d ", heaps[ii].currentsize);
+        printf("%d ", heapss[backward_forward][ii].currentsize);
       }
 
       printf("\n");
-      CKey best_q_min_key = heaps[q_id].getminkeyheap();
+      CKey best_q_min_key = heapss[backward_forward][q_id].getminkeyheap();
       printf("Q_id: %d, Minkey: %ld\n", q_id, best_q_min_key.key[0]);
     }
 
     //checkHeaps("before delete heap");
 
+    //heaps[BorF]
     //get the state
     if (q_id == 0) {
-      state = (MHAState *)heaps[q_id].deleteminheap();
+      state = (MHAState *)heapss[backward_forward][q_id].deleteminheap();
     } else {
-      heaps[q_id].deleteheap(state);
+      heapss[backward_forward][q_id].deleteheap(state);
     }
 
     // delete from the other queues as well if SMHA.
@@ -873,13 +957,13 @@ int MHAPlanner::ImprovePath() {
         //TODO(Venkat): don't delete from anchor
         // if (use_anchor && j==0) continue;
         if (j != q_id) {
-          MHAState *state_to_delete = GetState(j, state->id);
+          MHAState *state_to_delete = GetState(backward_forward, j, state->id);
 
           if (state_to_delete->iteration_closed == search_iteration) {
             continue;  // We already removed this state from the inadmissible queue
           }
 
-          heaps[j].deleteheap(state_to_delete);
+          heapss[backward_forward][j].deleteheap(state_to_delete);
         }
       }
     }
@@ -911,7 +995,7 @@ int MHAPlanner::ImprovePath() {
             }
           }
 
-          MHAState *tmp_state = GetState(j, state->id);
+          MHAState *tmp_state = GetState(backward_forward, j, state->id);
           tmp_state->v = tmp_state->g;
           tmp_state->expanded_best_parent =
             tmp_state->best_parent; //TODO--verify this with Mike
@@ -921,7 +1005,13 @@ int MHAPlanner::ImprovePath() {
 
       //expand the state
       expands++;
-      ExpandState(q_id, state);
+      getchar();
+      ExpandState(backward_forward, q_id, state);
+
+      if (bidirectional)   //for bidirectional search
+        if (q_id)  //todo
+          min_states[backward_forward] = state;   //fahad
+      // env_->VisualizeState(state->id);
 
       if (use_lazy_) {
         spin_again = true;
@@ -931,33 +1021,36 @@ int MHAPlanner::ImprovePath() {
         printf("expands so far=%u\n", expands);
       }
     } else { //otherwise the state needs to be evaluated for its true cost
-      EvaluateState(q_id, state);
+      EvaluateState(backward_forward, q_id, state);
       spin_again = false;
     }
 
     //get the min key for the next iteration
-    min_key = heaps[0].getminkeyheap();
+    min_key = heapss[backward_forward][0].getminkeyheap();       //heaps[BorF] 
     //printf("min_key =%d\n",min_key.key[0]);
-  }
+  } //while end
 
   search_expands += expands;
 
+  //fahad todo
   if (goal_state->v < goal_state->g) {
     goal_state->g = goal_state->v;
     goal_state->best_parent = goal_state->expanded_best_parent;
   }
+  
+  printf("goal state g value %d\n", goal_states[1]->g);
+  // if (goal_state->g == INFINITECOST && (heaps[0].emptyheap() ||
+  //                                       min_key.key[0] >= INFINITECOST)) {
+  //   return 0;  //solution does not exists
+  // }
 
-  if (goal_state->g == INFINITECOST && (heaps[0].emptyheap() ||
-                                        min_key.key[0] >= INFINITECOST)) {
-    return 0;  //solution does not exists
-  }
-
-  if (!heaps[0].emptyheap() && goal_state->g > min_key.key[0]) {
-    return 2;  //search exited because it ran out of time
-  }
+  // if (!heaps[0].emptyheap() && goal_state->g > min_key.key[0]) {
+  //   return 2;  //search exited because it ran out of time
+  // }
 
   printf("search exited with a solution for eps=%.3f\n", inflation_eps);
 
+  //todo doesnt matter
   if (goal_state->g < goal_state->v) {
     goal_state->expanded_best_parent = goal_state->best_parent;
     goal_state->v = goal_state->g;
@@ -1030,23 +1123,25 @@ void MHAPlanner::checkHeaps(string msg) {
 
 }
 
-vector<int> MHAPlanner::GetSearchPath(int &solcost) {
+vector<int> MHAPlanner::GetSearchPath(int backward_forward,int &solcost) {
   vector<int> SuccIDV;
   vector<int> CostV;
   vector<bool> isTrueCost;
   vector<int> wholePathIds;
 
-  MHAState *state = goal_state;
-  MHAState *final_state = start_state;
+  // MHAState *state = goal_state;
+  MHAState *state = goal_states[backward_forward];  //fahad
+  // MHAState *final_state = start_state;
+  MHAState *final_state = goal_states[!backward_forward]; //fahad
 
   //if the goal was not expanded but was generated (we don't have a bound on the solution)
   //pretend that it was expanded for path reconstruction and revert the state afterward
   bool goal_expanded = true;
 
-  if (goal_state->expanded_best_parent == NULL) {
+  if (goal_states[backward_forward]->expanded_best_parent == NULL) {
     goal_expanded = false;
-    goal_state->expanded_best_parent = goal_state->best_parent;
-    goal_state->v = goal_state->g;
+    goal_states[backward_forward]->expanded_best_parent = goal_states[backward_forward]->best_parent;
+    goal_states[backward_forward]->v = goal_states[backward_forward]->g;
   }
 
   wholePathIds.push_back(state->id);
@@ -1069,11 +1164,11 @@ vector<int> MHAPlanner::GetSearchPath(int &solcost) {
         env_->GetLazySuccs(state->expanded_best_parent->id, &SuccIDV, &CostV,
                            &isTrueCost);
       } else {
-        env_->GetLazyPreds(state->expanded_best_parent->id, &SuccIDV, &CostV,
-                           &isTrueCost);
+        // env_->GetLazyPreds(state->expanded_best_parent->id, &SuccIDV, &CostV,  //fahad
+        //                    &isTrueCost);
       }
     } else {
-      if (bforwardsearch) {
+      if (backward_forward == 0) {
         env_->GetSuccs(state->expanded_best_parent->id, &SuccIDV, &CostV);
       } else {
         env_->GetPreds(state->expanded_best_parent->id, &SuccIDV, &CostV);
@@ -1103,13 +1198,13 @@ vector<int> MHAPlanner::GetSearchPath(int &solcost) {
 
   //if we pretended that the goal was expanded for path reconstruction then revert the state now
   if (!goal_expanded) {
-    goal_state->expanded_best_parent = NULL;
-    goal_state->v = INFINITECOST;
+    goal_states[backward_forward]->expanded_best_parent = NULL;
+    goal_states[backward_forward]->v = INFINITECOST;
   }
 
   //if we searched forward then the path reconstruction
   //worked backward from the goal, so we have to reverse the path
-  if (bforwardsearch) {
+  if (backward_forward == 0) {
     //in place reverse
     for (unsigned int i = 0; i < wholePathIds.size() / 2; i++) {
       int other_idx = wholePathIds.size() - i - 1;
@@ -1120,6 +1215,192 @@ vector<int> MHAPlanner::GetSearchPath(int &solcost) {
   }
 
   return wholePathIds;
+}
+
+vector<int> MHAPlanner::GetBidirectionalSearchPath(int id,int &solcost) {
+  vector<int> SuccIDV;
+  vector<int> PredIDV;
+  vector<int> CostV;
+  vector<bool> isTrueCost;
+  vector<int> wholePathIds_bwd;
+  vector<int> wholePathIds_fwd;
+
+/////////////////////////////////////////////////////////////////////////FWD
+  // MHAState *state = goal_state;
+  MHAState *state = GetState(0, 0, id);  //fwd
+  // MHAState *final_state = start_state;
+  MHAState *final_state = goal_states[1]; //fahad
+
+  //if the goal was not expanded but was generated (we don't have a bound on the solution)
+  //pretend that it was expanded for path reconstruction and revert the state afterward
+  bool goal_expanded = true;
+  //fahad
+  if (state->expanded_best_parent == NULL) {
+    goal_expanded = false;
+    state->expanded_best_parent = state->best_parent;
+    state->v = state->g;
+  }
+
+  wholePathIds_fwd.push_back(state->id);
+  solcost = 0;
+
+  while (state->id != final_state->id) {
+    if (state->expanded_best_parent == NULL) {
+      printf("a state along the path has no parent!\n");
+      break;
+    }
+
+    if (state->v == INFINITECOST) {
+      printf("a state along the path has an infinite g-value!\n");
+      printf("inf state = %d\n", state->id);
+      break;
+    }
+
+    if (use_lazy_) {
+      if (bforwardsearch) {
+        env_->GetLazySuccs(state->expanded_best_parent->id, &SuccIDV, &CostV,
+                           &isTrueCost);
+      } else {
+        // env_->GetLazyPreds(state->expanded_best_parent->id, &SuccIDV, &CostV,  //fahad
+        //                    &isTrueCost);
+      }
+    } else {
+      // if (backward_forward == 0) {
+        env_->GetSuccs(state->expanded_best_parent->id, &SuccIDV, &CostV);
+      // } else {
+      //   env_->GetPreds(state->expanded_best_parent->id, &SuccIDV, &CostV);
+      // }
+
+    }
+
+    int actioncost = INFINITECOST;
+
+    //printf("reconstruct expand %d\n",state->expanded_best_parent->id);
+    for (unsigned int i = 0; i < SuccIDV.size(); i++) {
+      //printf("  succ %d\n",SuccIDV[i]);
+      if (SuccIDV[i] == state->id && CostV[i] < actioncost) {
+        actioncost = CostV[i];
+      }
+    }
+
+    if (actioncost == INFINITECOST) {
+      printf("WARNING: actioncost = %d\n", actioncost);
+    }
+
+    solcost += actioncost;
+
+    state = state->expanded_best_parent;
+    wholePathIds_fwd.push_back(state->id);
+  }
+
+  //if we pretended that the goal was expanded for path reconstruction then revert the state now
+  if (!goal_expanded) {
+    goal_states[0]->expanded_best_parent = NULL;
+    goal_states[0]->v = INFINITECOST;
+  }
+
+  //if we searched forward then the path reconstruction
+  //worked backward from the goal, so we have to reverse the path
+  // if (backward_forward == 0) {
+    //in place reverse
+    for (unsigned int i = 0; i < wholePathIds_fwd.size() / 2; i++) {
+      int other_idx = wholePathIds_fwd.size() - i - 1;
+      int temp = wholePathIds_fwd[i];
+      wholePathIds_fwd[i] = wholePathIds_fwd[other_idx];
+      wholePathIds_fwd[other_idx] = temp;
+    }
+  // }
+
+//////////////////////////////////////////////////////////////////////////////////////////BWD
+
+  state = GetState(1, 0, id);  //fwd
+  // MHAState *final_state = start_state;
+  final_state = goal_states[0]; //fahad
+
+  //if the goal was not expanded but was generated (we don't have a bound on the solution)
+  //pretend that it was expanded for path reconstruction and revert the state afterward
+  goal_expanded = true;
+
+  if (state->expanded_best_parent == NULL) {
+    goal_expanded = false;
+    state->expanded_best_parent = state->best_parent;
+    state->v = state->g;
+  }
+
+  wholePathIds_bwd.push_back(state->id);
+  // solcost = 0;
+
+  while (state->id != final_state->id) {
+    if (state->expanded_best_parent == NULL) {
+      printf("a state along the path has no parent!\n");
+      break;
+    }
+
+    if (state->v == INFINITECOST) {
+      printf("a state along the path has an infinite g-value!\n");
+      printf("inf state = %d\n", state->id);
+      break;
+    }
+
+    if (use_lazy_) {
+      if (bforwardsearch) {
+        env_->GetLazySuccs(state->expanded_best_parent->id, &PredIDV, &CostV,
+                           &isTrueCost);
+      } else {
+        // env_->GetLazyPreds(state->expanded_best_parent->id, &SuccIDV, &CostV,  //fahad
+        //                    &isTrueCost);
+      }
+    } else {
+      // if (backward_forward == 0) {
+      //   env_->GetSuccs(state->expanded_best_parent->id, &SuccIDV, &CostV);
+      // } else {
+        env_->GetPreds(state->expanded_best_parent->id, &PredIDV, &CostV);
+      // }
+
+    }
+
+    int actioncost = INFINITECOST;
+
+    //printf("reconstruct expand %d\n",state->expanded_best_parent->id);
+    for (unsigned int i = 0; i < PredIDV.size(); i++) {
+      //printf("  succ %d\n",SuccIDV[i]);
+      if (PredIDV[i] == state->id && CostV[i] < actioncost) {
+        actioncost = CostV[i];
+      }
+    }
+
+    if (actioncost == INFINITECOST) {
+      printf("WARNING: actioncost = %d\n", actioncost);
+    }
+
+    solcost += actioncost;
+
+    state = state->expanded_best_parent;
+    wholePathIds_bwd.push_back(state->id);
+  }
+
+  //if we pretended that the goal was expanded for path reconstruction then revert the state now
+  if (!goal_expanded) {
+    goal_states[1]->expanded_best_parent = NULL;
+    goal_states[1]->v = INFINITECOST;
+  }
+
+  //if we searched forward then the path reconstruction
+  //worked backward from the goal, so we have to reverse the path
+  // if (backward_forward == 0) {
+    //in place reverse
+    // for (unsigned int i = 0; i < wholePathIds_bwd.size() / 2; i++) {
+    //   int other_idx = wholePathIds_bwd.size() - i - 1;
+    //   int temp = wholePathIds_bwd[i];
+    //   wholePathIds_bwd[i] = wholePathIds_bwd[other_idx];
+    //   wholePathIds_bwd[other_idx] = temp;
+    // }
+  // }
+  for (unsigned int i = 0; i < wholePathIds_bwd.size(); i++)
+    wholePathIds_fwd.push_back(wholePathIds_bwd[i]);
+
+
+   return wholePathIds_fwd;
 }
 
 bool MHAPlanner::outOfTime() {
@@ -1162,12 +1443,18 @@ void MHAPlanner::initializeSearch() {
   reconstructTime = 0;
   totalTime = 0;
 
-  //clear open list, incons list, and stats list
-  for (int ii = 0; ii < num_heuristics; ++ii) {
-    heaps[ii].makeemptyheap();
-    incons[ii].clear();
-  }
 
+  //clear open list, incons list, and stats list
+  for (int jj = 0; jj < 2; jj++)  //bbbb
+    for (int ii = 0; ii < num_heuristics; ++ii) { //fahad
+      heapss[jj][ii].makeemptyheap();      //heaps[BorF][ii]
+          
+    }
+
+  for (int ii = 0; ii < num_heuristics; ++ii)   //fahad
+    incons[ii].clear(); 
+
+  
   stats.clear();
 
   //set MHA parameters
@@ -1179,14 +1466,24 @@ void MHAPlanner::initializeSearch() {
   use_anchor = params.use_anchor;
   // Reset the Meta-A* state variables
   queue_expands.clear();
+  queue_expandss[0].clear();
+  queue_expandss[1].clear(); //fahad
   queue_best_h_dts.clear();
   queue_expands.resize(num_heuristics, 0);
+  queue_expandss[0].resize(num_heuristics, 0);
+  queue_expandss[1].resize(num_heuristics, 0);   //fahad
   queue_best_h_dts.resize(num_heuristics, INFINITECOST);
+
 
   for (int ii = 0; ii < num_heuristics; ++ii) {
     queue_best_h_meta_heaps[ii].makeemptyheap();
   }
 
+  //fahad
+  for (int jj = 0; jj < 2; jj++)
+    for (int ii = 0; ii < num_heuristics; ++ii) {
+        queue_best_h_meta_heapss[jj][ii].makeemptyheap();
+      }
   // Reset the DTS state variables
   for (int i = 0; i < num_heuristics; i++) {
     alpha[i] = 1.0;
@@ -1218,29 +1515,53 @@ void MHAPlanner::initializeSearch() {
 
   //TODO: for backward search goal_state is set to the start_state_id
   //and start_state is set to the goal_state_id
+  goal_state = GetState(0, 0, goal_state_id);
 
-  goal_state = GetState(0, goal_state_id);
+  goal_states[0] = GetState(0,0, goal_state_id);    //fwd
+  goal_states[1] = GetState(1,0, start_state_id);    //bwd
 
+  min_states[0] = goal_states[1];     //fahad
+  min_states[1] = goal_states[0];
   for (int ii = 0; ii < num_heuristics; ++ii) {
     //call get state to initialize the start and goal states
     //put start state in the heap
-    start_state = GetState(ii, start_state_id);
-    start_state->g = 0;
-    CKey key;
-    key.key[0] = inflation_eps * start_state->h;
-    heaps[ii].insertheap(start_state, key);
+    
+    //forward
+    start_states[0] = GetState(0, ii, start_state_id);
+    start_states[0]->g = 0;
+    CKey key_s;
+    key_s.key[0] = inflation_eps * start_states[0]->h;
+    heapss[0][ii].insertheap(start_states[0], key_s);
+  
+    //backward
+    // printf("getting state\n");
+    start_states[1] = GetState(1, ii, goal_state_id);
+    // printf("got state with h value %d\n", start_states[1]->h);
+    start_states[1]->g = 0;
+    CKey key_b;
+    key_b.key[0] = inflation_eps * start_states[1]->h;
+    heapss[1][ii].insertheap(start_states[1], key_b);    
 
-    queue_best_h_dts[ii] = start_state->h;
-    BestHState *best_h_state = GetBestHState(ii, start_state->id);
+    // queue_best_h_dts[ii] = start_state->h;
+    BestHState *best_h_state = GetBestHState(0, ii, start_states[0]->id);
     CKey h_key;
-    h_key.key[0] = start_state->h;
-    queue_best_h_meta_heaps[ii].insertheap(best_h_state, h_key);
+    h_key.key[0] = goal_states[1]->h; //start_State->h
+    // queue_best_h_meta_heaps[ii].insertheap(best_h_state, h_key);       //todo doesnt matter
+    //fahad
+    //fwd
+    queue_best_h_meta_heapss[0][ii].insertheap(best_h_state, h_key);  
+    //bwd
+    best_h_state = GetBestHState(1, ii, goal_state->id);    
+    h_key.key[0] = goal_states[0]->h; //goal_state->h
+    queue_best_h_meta_heapss[1][ii].insertheap(best_h_state, h_key);  
   }
-
-  start_state = GetState(0, start_state_id);
+  // while(1);
+  start_state = GetState(0, 0, start_state_id);     //todo
 
   //ensure heuristics are up-to-date
-  env_->EnsureHeuristicsUpdated((bforwardsearch == true));
+
+  //do for both forward and backward fahad
+  env_->EnsureHeuristicsUpdated((bforwardsearch == false));   //todo REVERSE
 }
 
 bool MHAPlanner::Search(vector<int> &pathIds, int &PathCost) {
@@ -1297,18 +1618,23 @@ bool MHAPlanner::Search(vector<int> &pathIds, int &PathCost) {
     prepareNextSearchIteration();
   }
 
-  if (goal_state->g == INFINITECOST) {
-    printf("could not find a solution (ran out of time)\n");
-    return false;
-  }
+  // if (goal_state->g == INFINITECOST) {
+  //   printf("could not find a solution (ran out of time)\n");
+  //   return false;
+  // }
 
-  if (eps_satisfied == INFINITECOST) {
-    printf("WARNING: a solution was found but we don't have quality bound for it!\n");
-  }
+  // if (eps_satisfied == INFINITECOST) {
+  //   printf("WARNING: a solution was found but we don't have quality bound for it!\n");
+  // }
 
   printf("solution found\n");
   clock_t before_reconstruct = clock();
-  pathIds = GetSearchPath(PathCost);
+  if (bidirectional)
+    pathIds = GetBidirectionalSearchPath(intersection_state_id,PathCost);    //todo
+  else
+  {
+    pathIds = GetSearchPath(!bforwardsearch, PathCost);  //todo
+  }
   reconstructTime = double(clock() - before_reconstruct) / CLOCKS_PER_SEC;
   totalTime = totalPlanTime + reconstructTime;
 
@@ -1347,7 +1673,7 @@ void MHAPlanner::prepareNextSearchIteration() {
   search_iteration++;
 }
 
-int MHAPlanner::GetBestHeuristicID() {
+int MHAPlanner::GetBestHeuristicID(int backward_forward) {
   // Note: Anchor is skipped for original MHA, but not for lite
   int starting_ind;
 
@@ -1369,9 +1695,9 @@ int MHAPlanner::GetBestHeuristicID() {
     bool print = false;
 
     for (int ii = starting_ind; ii < num_heuristics; ++ii) {
-      int priority = queue_expands[ii];
+      int priority = queue_expandss[backward_forward][ii];
 
-      if (heaps[ii].getminkeyheap().key[0] >= INFINITECOST) {
+      if (heapss[backward_forward][ii].getminkeyheap().key[0] >= INFINITECOST) {
         priority = INFINITECOST;
       }
 
@@ -1379,12 +1705,12 @@ int MHAPlanner::GetBestHeuristicID() {
         best_priority = priority;
         best_id = ii;
       }
-
+      //todo
       if (print) {
-        CKey key = queue_best_h_meta_heaps[ii].getminkeyheap();
+        CKey key = queue_best_h_meta_heapss[backward_forward][ii].getminkeyheap();
         int best_h = key.key[0];
         printf("                      qid=%d g=%d h=%d (queue best h=%d)\n", ii,
-               queue_expands[ii], best_h / max_heur_dec[ii], best_h);
+               queue_expandss[backward_forward][ii], best_h / max_heur_dec[ii], best_h);
       }
     }
 
@@ -1555,7 +1881,9 @@ int MHAPlanner::replan(vector<int> *solution_stateIDs_V, MHAReplanParams p,
   int PathCost = 0;
   bool solnFound = Search(pathIds, PathCost);
   printf("total expands=%d planning time=%.3f reconstruct path time=%.3f total time=%.3f solution cost=%d\n",
-         totalExpands, totalPlanTime, reconstructTime, totalTime, goal_state->g);
+         totalExpands, totalPlanTime, reconstructTime, totalTime, PathCost);   //fahad
+
+  // getchar();
 
   for (int i = 0; i < num_heuristics; i++) {
     printf("max heuristic decrease found for queue %d was %d\n", i,

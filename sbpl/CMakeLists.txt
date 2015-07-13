@@ -41,11 +41,12 @@ target_link_libraries(sbpl ${gsl_LIBRARIES})
 # Build executables in the bin directory
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 
-rosbuild_add_executable(test_sbpl src/test/main.cpp)
-target_link_libraries(test_sbpl sbpl)
+#rosbuild_add_executable(test_sbpl src/test/main.cpp)
+#target_link_libraries(test_sbpl sbpl)
 
-rosbuild_add_executable(test_adjacency_list src/test/test_adjacency_list.cpp)
-target_link_libraries(test_adjacency_list sbpl)
+#rosbuild_add_executable(test_adjacency_list src/test/test_adjacency_list.cpp)
+#target_link_libraries(test_adjacency_list sbpl)
+
 
 # Download needed data file
 rosbuild_download_test_data(http://pr.willowgarage.com/data/sbpl/env_examples/nav2d/willow-25mm-inflated-env.cfg env_examples/nav2d/willow-25mm-inflated-env.cfg 1b4551eeba6df03b6e597e598bbaa4f3)

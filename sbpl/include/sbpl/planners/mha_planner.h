@@ -81,20 +81,20 @@ class MHAReplanParams: public ReplanParams
     mha_planner::MHAType mha_type;
 };
 
-class MHAState: public AbstractSearchState{
+class MHAState: public AbstractSearchState{     //fahad
   public:
     int id;
-    int q_id;
-    unsigned int v;
-    unsigned int g;
-    int h;
-    short unsigned int iteration_closed;
-    short unsigned int replan_number;
-    MHAState* best_parent;
-    MHAState* expanded_best_parent;
-    bool in_incons;
-    std::priority_queue<MHALazyListElement> lazyList;
-    bool isTrueCost;
+    int q_id;       //doesnt matter i think
+    unsigned int v;     //v[2]  
+    unsigned int g;     //g[2]
+    int h;      //h[2]
+    short unsigned int iteration_closed;        //doesnt matter i think
+    short unsigned int replan_number;           //doesnt matter i think
+    MHAState* best_parent;      //best_parent[2]
+    MHAState* expanded_best_parent;     //expanded_best_parent[2]
+    bool in_incons;         //in_incons[2]
+    std::priority_queue<MHALazyListElement> lazyList;       //doesnt matter i think
+    bool isTrueCost;    //isTrueCost[2]
 };
 
 class BestHState: public AbstractSearchState{
@@ -169,25 +169,34 @@ class MHAPlanner : public SBPLPlanner{
       printf("Not supported. Use MHAReplanParams");
     };
 
-    MHAPlanner(EnvironmentMHA* environment, int num_heuristics, bool bforwardsearch);
+    MHAPlanner(EnvironmentMHA* environment, int num_heuristics, bool bforwardsearch, bool biDirectional);
     ~MHAPlanner();
 
     virtual void get_search_stats(std::vector<PlannerStats>* s);
 
   protected:
     //data structures (open and incons lists)
-    std::vector<CHeap> heaps;
+    std::vector<CHeap> heaps;    
+    std::vector<CHeap> heapss[2];    //fahad
     std::vector<std::vector<MHAState*>> incons;
     std::vector<std::vector<MHAState*>> states;
-    std::vector<std::vector<BestHState*>> best_h_states;
+    std::vector<std::vector<MHAState*>> statess[2];
+    std::vector<std::vector<BestHState*>> best_h_states; 
+    std::vector<std::vector<BestHState*>> best_h_statess[2];    //fahad    
 
     //params
     MHAReplanParams params;
     bool bforwardsearch; //if true, then search proceeds forward, otherwise backward
-    MHAState* goal_state;
+    bool bidirectional;     //fahad
     MHAState* start_state;
-    int goal_state_id;
+    MHAState* goal_state; 
+    MHAState* goal_states[2];    //fahad      
+    MHAState* start_states[2];      
+    MHAState* min_states[2];    //fahad
+    int goal_state_id;      
     int start_state_id;
+    int intersection_state_id;  
+    unsigned int best_path_length;   
 
     //mha params
     EnvironmentMHA* env_;
@@ -201,8 +210,11 @@ class MHAPlanner : public SBPLPlanner{
 
     // meta-A* variables
     std::vector<int> queue_expands;
-    std::vector<int> queue_best_h_dts;
+    std::vector<int> queue_expandss[2]; //fahad
+    std::vector<int> queue_best_h_dts;      //todo
     std::vector<CHeap> queue_best_h_meta_heaps;
+    std::vector<CHeap> queue_best_h_meta_heapss[2];  //fahad
+    bool intersect_flag;
     int max_edge_cost;
     std::vector<int> max_heur_dec;
 
@@ -233,17 +245,18 @@ class MHAPlanner : public SBPLPlanner{
 
     void checkHeaps(std::string msg);
 
-    virtual MHAState* GetState(int q_id, int id);
-    virtual BestHState* GetBestHState(int q_id, int id);
-    virtual void ExpandState(int q_id, MHAState* parent);
-    virtual void EvaluateState(int q_id, MHAState* parent);
-    void getNextLazyElement(int q_id, MHAState* state);
-    void insertLazyList(int q_id, MHAState* state, MHAState* parent, int edgeCost, bool isTrueCost);
-    void putStateInHeap(int q_id, MHAState* state);
+    virtual MHAState* GetState(int backward_forward, int q_id, int id);   //fahad
+    virtual BestHState* GetBestHState(int backward_forward, int q_id, int id);
+    virtual void ExpandState(int backward_forward, int q_id, MHAState* parent); //fahad
+    virtual void EvaluateState(int backward_forward, int q_id, MHAState* parent);
+    void getNextLazyElement(int backward_forward, int q_id, MHAState* state);
+    void insertLazyList(int backward_forward, int q_id, MHAState* state, MHAState* parent, int edgeCost, bool isTrueCost);
+    void putStateInHeap(int backward_forward, int q_id, MHAState* state);
 
     virtual int ImprovePath();
 
-    virtual std::vector<int> GetSearchPath(int& solcost);
+    virtual std::vector<int> GetSearchPath(int backward_forward, int& solcost); //todo
+    virtual std::vector<int> GetBidirectionalSearchPath(int id, int& solcost); //todo
 
     virtual bool outOfTime();
     virtual void initializeSearch();
@@ -251,7 +264,7 @@ class MHAPlanner : public SBPLPlanner{
     virtual bool Search(std::vector<int>& pathIds, int & PathCost);
 
     // MHA-specific
-    virtual int GetBestHeuristicID();
+    virtual int GetBestHeuristicID(int backward_forward);
     virtual bool UpdateGoal(MHAState* state);
 };
 

@@ -8,6 +8,8 @@
   <review status="unreviewed" notes=""/>
   <url>http://ros.org/wiki/sbpl</url>
   <depend package="roscpp"/>
+  <depend package="costmap_2d"/>
+  <depend package="visualization_msgs" />
 
   <export>
     <cpp cflags="-I${prefix}/include -O3 -DROS" lflags="-Wl,-rpath,${prefix}/lib -L${prefix}/lib -lsbpl"/>

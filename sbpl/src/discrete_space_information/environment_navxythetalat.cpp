@@ -1461,7 +1461,7 @@ void EnvironmentNAVXYTHETALATTICE::RemoveSourceFootprint(sbpl_xy_theta_pt_t sour
 
 void EnvironmentNAVXYTHETALATTICE::EnsureHeuristicsUpdated(bool bGoalHeuristics)
 {
-    if (bNeedtoRecomputeStartHeuristics && !bGoalHeuristics) {
+    if (bNeedtoRecomputeStartHeuristics /*&& !bGoalHeuristics*/) {          //fahad
         grid2Dsearchfromstart->search(EnvNAVXYTHETALATCfg.Grid2D, EnvNAVXYTHETALATCfg.cost_inscribed_thresh,
                                       EnvNAVXYTHETALATCfg.StartX_c, EnvNAVXYTHETALATCfg.StartY_c,
                                       EnvNAVXYTHETALATCfg.EndX_c, EnvNAVXYTHETALATCfg.EndY_c,
@@ -1474,7 +1474,7 @@ void EnvironmentNAVXYTHETALATTICE::EnsureHeuristicsUpdated(bool bGoalHeuristics)
 
     }
 
-    if (bNeedtoRecomputeGoalHeuristics && bGoalHeuristics) {
+    if (bNeedtoRecomputeGoalHeuristics /*&& bGoalHeuristics*/) {
         grid2Dsearchfromgoal->search(EnvNAVXYTHETALATCfg.Grid2D, EnvNAVXYTHETALATCfg.cost_inscribed_thresh,
                                      EnvNAVXYTHETALATCfg.EndX_c, EnvNAVXYTHETALATCfg.EndY_c,
                                      EnvNAVXYTHETALATCfg.StartX_c, EnvNAVXYTHETALATCfg.StartY_c,
@@ -1715,6 +1715,10 @@ void EnvironmentNAVXYTHETALATTICE::GetSuccs(int SourceStateID, vector<int>* Succ
 {
     GetSuccs(SourceStateID, SuccIDV, CostV, NULL);
 }
+void EnvironmentNAVXYTHETALATTICE::GetSuccs(int q_id, int SourceStateID, vector<int>* SuccIDV, vector<int>* CostV)    //fahad
+{
+    GetSuccs(q_id, SourceStateID, SuccIDV, CostV, NULL);
+}   
 void EnvironmentNAVXYTHETALATTICE::GetLazySuccs(int SourceStateID, std::vector<int>* SuccIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost){
     GetLazySuccs(SourceStateID, SuccIDV, CostV, isTrueCost, NULL);
 }
@@ -2027,7 +2031,7 @@ void EnvironmentNAVXYTHETALAT::ConvertStateIDPathintoXYThetaPath(vector<int>* st
                 intermpt.x, intermpt.y, intermpt.theta,
                 nx, ny,
                 ContTheta2Disc(intermpt.theta, EnvNAVXYTHETALATCfg.NumThetaDirs), EnvNAVXYTHETALATCfg.Grid2D[nx][ny]);
-            if(ipind == 0) SBPL_FPRINTF(fDeb, "first (heur=%d)\n", GetStartHeuristic(sourceID));
+            if(ipind == 0) SBPL_FPRINTF(fDeb, "first (heur=%d)\n", GetStartHeuristic(sourceID));            //todo
             else SBPL_FPRINTF(fDeb, "\n");
 #endif
 
@@ -2338,6 +2342,86 @@ void EnvironmentNAVXYTHETALAT::GetSuccs(int SourceStateID, vector<int>* SuccIDV,
 #endif
 }
 
+//fahad
+void EnvironmentNAVXYTHETALAT::GetSuccs(int q_id, int SourceStateID, vector<int>* SuccIDV, vector<int>* CostV, vector<
+    EnvNAVXYTHETALATAction_t*>* actionV /*=NULL*/)
+{
+    int aind;
+
+#if TIME_DEBUG
+    clock_t currenttime = clock();
+#endif
+
+    //clear the successor array
+    SuccIDV->clear();
+    CostV->clear();
+    SuccIDV->reserve(EnvNAVXYTHETALATCfg.actionwidth);
+    CostV->reserve(EnvNAVXYTHETALATCfg.actionwidth);
+    if (actionV != NULL) {
+        actionV->clear();
+        actionV->reserve(EnvNAVXYTHETALATCfg.actionwidth);
+    }
+
+    //goal state should be absorbing
+    if (SourceStateID == EnvNAVXYTHETALAT.goalstateid) return;
+
+    //get X, Y for the state
+    EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[SourceStateID];
+
+    //iterate through actions
+    for (aind = 0; aind < EnvNAVXYTHETALATCfg.actionwidth; aind++) {
+        EnvNAVXYTHETALATAction_t* nav3daction = &EnvNAVXYTHETALATCfg.ActionsV[(unsigned int)HashEntry->Theta][aind];
+        int newX = HashEntry->X + nav3daction->dX;
+        int newY = HashEntry->Y + nav3daction->dY;
+        int newTheta = NORMALIZEDISCTHETA(nav3daction->endtheta, EnvNAVXYTHETALATCfg.NumThetaDirs);
+
+        //skip the invalid cells
+        if (!IsValidCell(newX, newY)) continue;
+
+        //get cost
+        int cost = GetActionCost(HashEntry->X, HashEntry->Y, HashEntry->Theta, nav3daction);
+        if (cost >= INFINITECOST) continue;
+
+        EnvNAVXYTHETALATHashEntry_t* OutHashEntry;
+        if ((OutHashEntry = (this->*GetHashEntry)(newX, newY, newTheta)) == NULL) {
+            //have to create a new entry
+            OutHashEntry = (this->*CreateNewHashEntry)(newX, newY, newTheta);
+        }
+
+        SuccIDV->push_back(OutHashEntry->stateID);
+        CostV->push_back(cost);
+        if (actionV != NULL) actionV->push_back(nav3daction);
+    }
+//fahad visualizee
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "base_link";
+    marker.header.stamp = ros::Time();
+    marker.ns = "my_namespace";
+    marker.id = rand() % 1000000;
+    marker.type = visualization_msgs::Marker::ARROW;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = DISCXY2CONT(HashEntry->X, EnvNAVXYTHETALATCfg.cellsize_m);
+    marker.pose.position.y = DISCXY2CONT(HashEntry->Y, EnvNAVXYTHETALATCfg.cellsize_m);
+    // printf("X %d Y %d\n", HashEntry->X, HashEntry->Y);
+    marker.pose.position.z = 0.1;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs);
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.03;
+    marker.scale.z = 0.03;
+    marker.color.a = 1.0; // Don't forget to set the alpha!
+    marker.color.r = 0.0;
+    marker.color.g = 0.0;
+    marker.color.b = q_id;
+    // if (q_id == 0)
+    vis_pub_.publish( marker );
+    // getchar();
+#if TIME_DEBUG
+    time_getsuccs += clock()-currenttime;
+#endif
+}
 void EnvironmentNAVXYTHETALAT::GetPreds(int TargetStateID, vector<int>* PredIDV, vector<int>* CostV)
 {
     //TODO- to support tolerance, need:
@@ -2386,6 +2470,86 @@ void EnvironmentNAVXYTHETALAT::GetPreds(int TargetStateID, vector<int>* PredIDV,
         PredIDV->push_back(OutHashEntry->stateID);
         CostV->push_back(cost);
     }
+
+#if TIME_DEBUG
+    time_getsuccs += clock()-currenttime;
+#endif
+}
+//fahad
+void EnvironmentNAVXYTHETALAT::GetPreds(int q_id, int TargetStateID, vector<int>* PredIDV, vector<int>* CostV)
+{
+    //TODO- to support tolerance, need:
+    // a) generate preds for goal state based on all possible goal state variable settings,
+    // b) change goal check condition in gethashentry c) change
+    //    getpredsofchangedcells and getsuccsofchangedcells functions
+
+    int aind;
+
+#if TIME_DEBUG
+    clock_t currenttime = clock();
+#endif
+
+    //get X, Y for the state
+    EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[TargetStateID];
+
+    //clear the successor array
+    PredIDV->clear();
+    CostV->clear();
+    PredIDV->reserve(EnvNAVXYTHETALATCfg.PredActionsV[(unsigned int)HashEntry->Theta].size());
+    CostV->reserve(EnvNAVXYTHETALATCfg.PredActionsV[(unsigned int)HashEntry->Theta].size());
+
+    //iterate through actions
+    vector<EnvNAVXYTHETALATAction_t*>* actionsV = &EnvNAVXYTHETALATCfg.PredActionsV[(unsigned int)HashEntry->Theta];
+    for (aind = 0; aind < (int)EnvNAVXYTHETALATCfg.PredActionsV[(unsigned int)HashEntry->Theta].size(); aind++) {
+
+        EnvNAVXYTHETALATAction_t* nav3daction = actionsV->at(aind);
+
+        int predX = HashEntry->X - nav3daction->dX;
+        int predY = HashEntry->Y - nav3daction->dY;
+        int predTheta = nav3daction->starttheta;
+
+        //skip the invalid cells
+        if (!IsValidCell(predX, predY)) continue;
+
+        //get cost
+        int cost = GetActionCost(predX, predY, predTheta, nav3daction);
+        if (cost >= INFINITECOST) continue;
+
+        EnvNAVXYTHETALATHashEntry_t* OutHashEntry;
+        if ((OutHashEntry = (this->*GetHashEntry)(predX, predY, predTheta)) == NULL) {
+            //have to create a new entry
+            OutHashEntry = (this->*CreateNewHashEntry)(predX, predY, predTheta);
+        }
+
+        PredIDV->push_back(OutHashEntry->stateID);
+        CostV->push_back(cost);
+    }
+    
+    //fahad visualizee
+    visualization_msgs::Marker marker;
+    marker.header.frame_id = "base_link";
+    marker.header.stamp = ros::Time();
+    marker.ns = "my_namespace";
+    marker.id = rand() % 1000000;
+    marker.type = visualization_msgs::Marker::ARROW;
+    marker.action = visualization_msgs::Marker::ADD;
+    marker.pose.position.x = DISCXY2CONT(HashEntry->X, EnvNAVXYTHETALATCfg.cellsize_m);
+    marker.pose.position.y = DISCXY2CONT(HashEntry->Y, EnvNAVXYTHETALATCfg.cellsize_m);
+    // printf("X %d Y %d\n", HashEntry->X, HashEntry->Y);
+    marker.pose.position.z = 0.1;
+    marker.pose.orientation.x = 0.0;
+    marker.pose.orientation.y = 0.0;
+    marker.pose.orientation.z = DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs);
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.03;
+    marker.scale.z = 0.03;
+    marker.color.a = 1.0; // Don't forget to set the alpha!
+    marker.color.r = 0.0;
+    marker.color.g = 0.0;
+    marker.color.b = q_id;
+    vis_pub_.publish( marker );
+    // getchar();
 
 #if TIME_DEBUG
     time_getsuccs += clock()-currenttime;
@@ -2656,6 +2820,49 @@ int EnvironmentNAVXYTHETALAT::GetGoalHeuristic(int stateID)
     return (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs);
 }
 
+//fahad
+int EnvironmentNAVXYTHETALAT::GetGoalHeuristic(int q_id, int stateID, int stateID_front)
+{
+    switch (q_id) {
+        case 0:
+        {
+            #if USE_HEUR==0
+                return 0;
+            #endif
+
+            #if DEBUG
+                if (stateID >= (int)StateID2CoordTable.size()) {
+                    SBPL_ERROR("ERROR in EnvNAVXYTHETALAT... function: stateID illegal\n");
+                    throw new SBPL_Exception();
+                }
+            #endif
+
+                EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[stateID];
+                //computes distances from start state that is grid2D, so it is EndX_c EndY_c
+                int h2D = grid2Dsearchfromgoal->getlowerboundoncostfromstart_inmm(HashEntry->X, HashEntry->Y); 
+                int hEuclid = (int)(NAVXYTHETALAT_COSTMULT_MTOMM * EuclideanDistance_m(HashEntry->X, HashEntry->Y,
+                                                                                       EnvNAVXYTHETALATCfg.EndX_c,
+                                                                                       EnvNAVXYTHETALATCfg.EndY_c));
+
+                //define this function if it is used in the planner (heuristic backward search would use it)
+                return (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs);
+        }
+        case 1:
+        {
+            int x, y, x_f, y_f, theta, theta_f, euc_dist;
+            EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[stateID];
+            EnvNAVXYTHETALATHashEntry_t* HashEntry_front = StateID2CoordTable[stateID_front];
+            x = HashEntry->X; y = HashEntry->Y;
+            x_f = HashEntry_front->X; y_f = HashEntry_front->Y;
+            theta = HashEntry->Theta; theta_f = HashEntry_front->Theta;
+            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + (theta - theta_f) * (theta - theta_f));
+            // printf("start heuristic %d\n", euc_dist);
+            return euc_dist*100;
+        }
+    }
+
+}
+
 int EnvironmentNAVXYTHETALAT::GetStartHeuristic(int stateID)
 {
 #if USE_HEUR==0
@@ -2678,7 +2885,79 @@ int EnvironmentNAVXYTHETALAT::GetStartHeuristic(int stateID)
     //define this function if it is used in the planner (heuristic backward search would use it)
     return (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs);
 }
+//fahad
+int EnvironmentNAVXYTHETALAT::GetStartHeuristic(int q_id, int stateID, int stateID_front)
+{
+    switch (q_id) {
+        case 0:
+        {
+            #if USE_HEUR==0
+                return 0;
+            #endif
 
+            #if DEBUG
+                if (stateID >= (int)StateID2CoordTable.size()) {
+                    SBPL_ERROR("ERROR in EnvNAVXYTHETALAT... function: stateID illegal\n");
+                    throw new SBPL_Exception();
+                }
+            #endif
+
+                EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[stateID];
+                int h2D = grid2Dsearchfromstart->getlowerboundoncostfromstart_inmm(HashEntry->X, HashEntry->Y);
+                int hEuclid = (int)(NAVXYTHETALAT_COSTMULT_MTOMM * EuclideanDistance_m(EnvNAVXYTHETALATCfg.StartX_c,
+                                                                                       EnvNAVXYTHETALATCfg.StartY_c, HashEntry->X,
+                                                                                       HashEntry->Y));
+
+                //define this function if it is used in the planner (heuristic backward search would use it)
+                // printf("start heuristic %d\n", (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs));
+                return (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs);
+
+        }
+        case 1:
+        {
+            int x, y, x_f, y_f, theta, theta_f, euc_dist;
+            EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[stateID];
+            EnvNAVXYTHETALATHashEntry_t* HashEntry_front = StateID2CoordTable[stateID_front];
+            x = HashEntry->X; y = HashEntry->Y;
+            x_f = HashEntry_front->X; y_f = HashEntry_front->Y;
+            theta = HashEntry->Theta; theta_f = HashEntry_front->Theta;
+            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + (theta - theta_f) * (theta - theta_f));
+            // printf("start heuristic %d\n", euc_dist);
+            return euc_dist*100;
+
+        }
+    }
+
+}
+
+// void EnvironmentNAVXYTHETALAT::VisualizeState(int stateID)
+// {
+//     EnvNAVXYTHETALATHashEntry_t* HashEntry = StateID2CoordTable[stateID];
+
+//     visualization_msgs::Marker marker;
+//     marker.header.frame_id = "base_link";
+//     marker.header.stamp = ros::Time();
+//     marker.ns = "my_namespace";
+//     marker.id = rand() % 1000000;
+//     marker.type = visualization_msgs::Marker::ARROW;
+//     marker.action = visualization_msgs::Marker::ADD;
+//     marker.pose.position.x = DISCXY2CONT(HashEntry->X, EnvNAVXYTHETALATCfg.cellsize_m);
+//     marker.pose.position.y = DISCXY2CONT(HashEntry->Y, EnvNAVXYTHETALATCfg.cellsize_m);
+//     // printf("X %d Y %d\n", HashEntry->X, HashEntry->Y);
+//     marker.pose.position.z = 0.1;
+//     marker.pose.orientation.x = 0.0;
+//     marker.pose.orientation.y = 0.0;
+//     marker.pose.orientation.z = DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs);
+//     marker.pose.orientation.w = 1.0;
+//     marker.scale.x = 0.3;
+//     marker.scale.y = 0.03;
+//     marker.scale.z = 0.03;
+//     marker.color.a = 1.0; // Don't forget to set the alpha!
+//     marker.color.r = 0.0;
+//     marker.color.g = 0.0;
+//     marker.color.b = 1.0;
+//     vis_pub_.publish( marker );    
+// }
 int EnvironmentNAVXYTHETALAT::SizeofCreatedEnv()
 {
     return (int)StateID2CoordTable.size();

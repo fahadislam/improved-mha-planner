@@ -47,15 +47,17 @@ class EnvironmentMHA : public DiscreteSpaceInformation
     /**
      * \brief heuristic estimate from state with stateID to goal state
      */
-    virtual int GetGoalHeuristic(int q_id, int stateID) = 0;
+    virtual int GetGoalHeuristic(int q_id, int stateID, int stateID_front) = 0; //fahad
 
     /**
      * \brief heuristic estimate from start state to state with stateID
      */
-    virtual int GetStartHeuristic(int q_id, int stateID) 
-    {
-      return 0;
-    }
+    virtual int GetStartHeuristic(int q_id, int stateID, int stateID_front) = 0;
+
+    // virtual void VisualizeState(int stateID) = 0; //fahad temp
+    // {
+    //   return 10;
+    // }
 
     /**
      * \brief GetSuccs methods that inform the environment which queue the states are being expanded from
@@ -83,10 +85,10 @@ class EnvironmentMHA : public DiscreteSpaceInformation
       throw new SBPL_Exception();
     };
 
-    virtual void GetLazyPreds(int q_id, int SourceStateID, std::vector<int>* PredIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost){
-      SBPL_ERROR("ERROR: GetLazyPreds with q_id is not implemented for this environment!\n");
-      throw new SBPL_Exception();
-    };
+    // virtual void GetLazyPreds(int q_id, int SourceStateID, std::vector<int>* PredIDV, std::vector<int>* CostV, std::vector<bool>* isTrueCost){
+    //   SBPL_ERROR("ERROR: GetLazyPreds with q_id is not implemented for this environment!\n");
+    //   throw new SBPL_Exception();
+    // };
 
     virtual int GetTrueCost(int q_id, int parentID, int childID){
       SBPL_ERROR("ERROR: GetTrueCost with q_id is not implemented for this environment!\n");

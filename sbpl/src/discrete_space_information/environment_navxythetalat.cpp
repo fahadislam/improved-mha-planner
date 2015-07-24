@@ -35,6 +35,7 @@
 #include <sbpl/utils/key.h>
 #include <sbpl/utils/mdp.h>
 #include <sbpl/utils/mdpconfig.h>
+#include <tf/tf.h>
 
 using namespace std;
 
@@ -2403,11 +2404,14 @@ void EnvironmentNAVXYTHETALAT::GetSuccs(int q_id, int SourceStateID, vector<int>
     marker.pose.position.x = DISCXY2CONT(HashEntry->X, EnvNAVXYTHETALATCfg.cellsize_m);
     marker.pose.position.y = DISCXY2CONT(HashEntry->Y, EnvNAVXYTHETALATCfg.cellsize_m);
     // printf("X %d Y %d\n", HashEntry->X, HashEntry->Y);
+    tf::Quaternion quat_state(0, 0, DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs));
+
+
     marker.pose.position.z = 0.1;
-    marker.pose.orientation.x = 0.0;
-    marker.pose.orientation.y = 0.0;
-    marker.pose.orientation.z = DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs);
-    marker.pose.orientation.w = 1.0;
+    marker.pose.orientation.x = quat_state.x();
+    marker.pose.orientation.y = quat_state.y();
+    marker.pose.orientation.z = quat_state.z();
+    marker.pose.orientation.w = quat_state.w();
     marker.scale.x = 0.1;
     marker.scale.y = 0.03;
     marker.scale.z = 0.03;
@@ -2536,11 +2540,13 @@ void EnvironmentNAVXYTHETALAT::GetPreds(int q_id, int TargetStateID, vector<int>
     marker.pose.position.x = DISCXY2CONT(HashEntry->X, EnvNAVXYTHETALATCfg.cellsize_m);
     marker.pose.position.y = DISCXY2CONT(HashEntry->Y, EnvNAVXYTHETALATCfg.cellsize_m);
     // printf("X %d Y %d\n", HashEntry->X, HashEntry->Y);
+
+    tf::Quaternion quat_state(0, 0, DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs));
     marker.pose.position.z = 0.1;
-    marker.pose.orientation.x = 0.0;
-    marker.pose.orientation.y = 0.0;
-    marker.pose.orientation.z = DiscTheta2Cont(HashEntry->Theta, EnvNAVXYTHETALATCfg.NumThetaDirs);
-    marker.pose.orientation.w = 1.0;
+    marker.pose.orientation.x = quat_state.x();
+    marker.pose.orientation.y = quat_state.y();
+    marker.pose.orientation.z = quat_state.z();
+    marker.pose.orientation.w = quat_state.w();
     marker.scale.x = 0.1;
     marker.scale.y = 0.03;
     marker.scale.z = 0.03;
@@ -2855,9 +2861,11 @@ int EnvironmentNAVXYTHETALAT::GetGoalHeuristic(int q_id, int stateID, int stateI
             x = HashEntry->X; y = HashEntry->Y;
             x_f = HashEntry_front->X; y_f = HashEntry_front->Y;
             theta = HashEntry->Theta; theta_f = HashEntry_front->Theta;
-            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + (theta - theta_f) * (theta - theta_f));
-            // printf("start heuristic %d\n", euc_dist);
-            return euc_dist*100;
+            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + 10*(theta - theta_f) * (theta - theta_f));
+            // printf("goal heuristic %d\n", euc_dist);
+            if (stateID == stateID_front)
+                printf("STOPPPPPP START  %d \n", stateID);
+            return euc_dist*1000;
         }
     }
 
@@ -2909,7 +2917,6 @@ int EnvironmentNAVXYTHETALAT::GetStartHeuristic(int q_id, int stateID, int state
                                                                                        HashEntry->Y));
 
                 //define this function if it is used in the planner (heuristic backward search would use it)
-                // printf("start heuristic %d\n", (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs));
                 return (int)(((double)__max(h2D, hEuclid)) / EnvNAVXYTHETALATCfg.nominalvel_mpersecs);
 
         }
@@ -2921,9 +2928,9 @@ int EnvironmentNAVXYTHETALAT::GetStartHeuristic(int q_id, int stateID, int state
             x = HashEntry->X; y = HashEntry->Y;
             x_f = HashEntry_front->X; y_f = HashEntry_front->Y;
             theta = HashEntry->Theta; theta_f = HashEntry_front->Theta;
-            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + (theta - theta_f) * (theta - theta_f));
+            euc_dist = sqrt( (x - x_f) * (x - x_f) + (y - y_f) * (y - y_f) + 10*(theta - theta_f) * (theta - theta_f));
             // printf("start heuristic %d\n", euc_dist);
-            return euc_dist*100;
+            return euc_dist*1000;
 
         }
     }

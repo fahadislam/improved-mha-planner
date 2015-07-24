@@ -192,7 +192,7 @@ class MHAPlanner : public SBPLPlanner{
     MHAState* goal_state; 
     MHAState* goal_states[2];    //fahad      
     MHAState* start_states[2];      
-    MHAState* min_states[2];    //fahad
+    int min_state_ids[2][2];    //fahad
     int goal_state_id;      
     int start_state_id;
     int intersection_state_id;  

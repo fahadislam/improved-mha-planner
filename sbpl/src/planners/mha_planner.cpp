@@ -137,19 +137,12 @@ MHAState *MHAPlanner::GetState(int bf, int q_id, int id) {  //fahad
     }
 
     //compute heuristics
-    if (bf == 0) {    //fahad
-      if (id == 1 || id == 2)
-        s->h = env_->GetGoalHeuristic(q_id, s->id, id); //todo
-      else
-        s->h = env_->GetGoalHeuristic(q_id, s->id, min_states[!bf]->id);    //fahad
+    if (bf == 0) 
+      s->h = env_->GetGoalHeuristic(q_id, s->id, min_state_ids[!bf][q_id]);    //fahad
       // printf("goal heuristic for state %d is %d\n", id, s->h);
-    } else {
-      if (id == 1 || id == 2)
-        s->h = env_->GetStartHeuristic(q_id, s->id, id);
-      else
-        s->h = env_->GetStartHeuristic(q_id, s->id, min_states[!bf]->id);    //fahad
+    else
+      s->h = env_->GetStartHeuristic(q_id, s->id, min_state_ids[!bf][q_id]);    //fahad
       // printf("start heuristic for state %d is %d\n", id, s->h);
-    }
 
   }
 
@@ -381,8 +374,8 @@ void MHAPlanner::EvaluateState(int backward_forward, int q_id, MHAState *state) 
   // Meta-A*
   if (meta_search_type == mha_planner::MetaSearchType::META_A_STAR &&
       trueCost < 0 && state->lazyList.empty()) {
-    BestHState *best_h_state = GetBestHState(0, q_id, state->id);
-    queue_best_h_meta_heaps[q_id].deleteheap(best_h_state);
+    BestHState *best_h_state = GetBestHState(backward_forward, q_id, state->id);
+    queue_best_h_meta_heapss[backward_forward][q_id].deleteheap(best_h_state);    //fahad
 
     // delete from the other queues as well if SMHA.
     if (planner_type == mha_planner::PlannerType::SMHA) {
@@ -566,7 +559,8 @@ void MHAPlanner::putStateInHeap(int backward_forward, int q_id, MHAState *state)
       if (q_id == 0) {
         key.key[0] = long(state->g + int(inflation_eps * state->h));
       } else {
-        key.key[0] = long(state->h);
+        // key.key[0] = long(state->h);
+        key.key[0] = long(state->g + int(inflation_eps * state->h));
       }
 
       break;
@@ -781,25 +775,32 @@ int MHAPlanner::ImprovePath() {
         // printf("updating heuristics %d\n", backward_forward);
       if (bidirectional)   //update heuristics for bidirectionalsearch
         if (q_id)
+        {
+          int h1, h2, h3;
+          //getgoal or start whatever
+          h1 = env_->GetGoalHeuristic(q_id, min_state_ids[backward_forward][!q_id], min_state_ids[!backward_forward][!q_id]);
+          h2 = env_->GetGoalHeuristic(q_id, min_state_ids[backward_forward][q_id], min_state_ids[!backward_forward][!q_id]);
+          h3 = env_->GetGoalHeuristic(q_id, min_state_ids[backward_forward][q_id], min_state_ids[!backward_forward][q_id]);
+
           for (int j=0; j < heapss[backward_forward][q_id].currentsize; j++)      //q_id issue
           {
             state = (MHAState *)heapss[backward_forward][q_id].heap[j+1].heapstate;     //why???
         
-            // printf("idddddddddddd %d %d\n", min_states[!backward_forward]->id, state->id);
-            if (backward_forward)
-            {
+            // printf("idddddddddddd %d %d\n", min_state_ids[!backward_forward]->id, state->id);
               // printf("goal id %d state id %d \n", goal_state_id, state->id);
-              state->h = env_->GetGoalHeuristic(q_id, state->id, min_states[!backward_forward]->id); 
-            }
+            if ( min(h1, h2) < h3)
+              state->h = env_->GetGoalHeuristic(q_id, state->id, min_state_ids[!backward_forward][!q_id]);
             else
-              state->h = env_->GetStartHeuristic(q_id, state->id, min_states[!backward_forward]->id); 
+              state->h = env_->GetGoalHeuristic(q_id, state->id, min_state_ids[!backward_forward][q_id]);  //getgoal or getstart whatever
 
             CKey key;
-            key.key[0] = state->h;
+            // key.key[0] = state->h;
+            key.key[0] = long(state->g + int(inflation_eps * state->h));
             // // printf("key %d\n", key.key[0]);
             // state->heapind[env_num]=0;     //to be fixed
             heapss[backward_forward][q_id].updateheap(state, key);
-          }    
+          }
+        }    
       // count = 0;}  
 
 
@@ -1005,12 +1006,12 @@ int MHAPlanner::ImprovePath() {
 
       //expand the state
       expands++;
-      getchar();
+      // getchar();
       ExpandState(backward_forward, q_id, state);
 
       if (bidirectional)   //for bidirectional search
-        if (q_id)  //todo
-          min_states[backward_forward] = state;   //fahad
+        // if (q_id)  //todo
+          min_state_ids[backward_forward][q_id] = state->id;   //fahad
       // env_->VisualizeState(state->id);
 
       if (use_lazy_) {
@@ -1515,28 +1516,30 @@ void MHAPlanner::initializeSearch() {
 
   //TODO: for backward search goal_state is set to the start_state_id
   //and start_state is set to the goal_state_id
+  min_state_ids[0][0] = start_state_id;     //fahad
+  min_state_ids[1][0] = goal_state_id;
+  min_state_ids[0][1] = start_state_id;     //fahad
+  min_state_ids[1][1] = goal_state_id;
+ 
   goal_state = GetState(0, 0, goal_state_id);
 
   goal_states[0] = GetState(0,0, goal_state_id);    //fwd
+
   goal_states[1] = GetState(1,0, start_state_id);    //bwd
 
-  min_states[0] = goal_states[1];     //fahad
-  min_states[1] = goal_states[0];
   for (int ii = 0; ii < num_heuristics; ++ii) {
     //call get state to initialize the start and goal states
     //put start state in the heap
     
     //forward
-    start_states[0] = GetState(0, ii, start_state_id);
+    start_states[0] = GetState(0, ii, start_state_id);     
     start_states[0]->g = 0;
     CKey key_s;
     key_s.key[0] = inflation_eps * start_states[0]->h;
     heapss[0][ii].insertheap(start_states[0], key_s);
   
     //backward
-    // printf("getting state\n");
     start_states[1] = GetState(1, ii, goal_state_id);
-    // printf("got state with h value %d\n", start_states[1]->h);
     start_states[1]->g = 0;
     CKey key_b;
     key_b.key[0] = inflation_eps * start_states[1]->h;
@@ -1557,7 +1560,6 @@ void MHAPlanner::initializeSearch() {
   }
   // while(1);
   start_state = GetState(0, 0, start_state_id);     //todo
-
   //ensure heuristics are up-to-date
 
   //do for both forward and backward fahad
@@ -1692,7 +1694,7 @@ int MHAPlanner::GetBestHeuristicID(int backward_forward) {
     // Note: Simply cycling through 0 to num_heuristics does not work because of lazy evaluation
     int best_id = -1;
     int best_priority = INFINITECOST;
-    bool print = false;
+    bool print = true;
 
     for (int ii = starting_ind; ii < num_heuristics; ++ii) {
       int priority = queue_expandss[backward_forward][ii];
@@ -1723,12 +1725,13 @@ int MHAPlanner::GetBestHeuristicID(int backward_forward) {
   } else if (meta_search_type == mha_planner::MetaSearchType::META_A_STAR) {
     // Meta-A*
     int best_id = -1;
-    int best_priority = INFINITECOST;
+    int best_priority[2];// = {INFINITECOST};
+    best_priority[0] = best_priority[1] = INFINITECOST;
     bool print = true;
     bool atleast_one_nonzero_heur = false;
 
     for (int ii = starting_ind; ii < num_heuristics; ++ii) {
-      CKey key = queue_best_h_meta_heaps[ii].getminkeyheap();
+      CKey key = queue_best_h_meta_heapss[backward_forward][ii].getminkeyheap();
       int best_h = key.key[0];
 
       if (best_h != 0) {
@@ -1738,7 +1741,7 @@ int MHAPlanner::GetBestHeuristicID(int backward_forward) {
     }
 
     for (int ii = starting_ind; ii < num_heuristics; ++ii) {
-      CKey key = queue_best_h_meta_heaps[ii].getminkeyheap();
+      CKey key = queue_best_h_meta_heapss[backward_forward][ii].getminkeyheap();
       int best_h = key.key[0];
 
       if (planner_type == mha_planner::PlannerType::SMHA &&
@@ -1748,17 +1751,17 @@ int MHAPlanner::GetBestHeuristicID(int backward_forward) {
 
       //TODO: remove magic inflation?
       const int meta_heur_inflation = 10;
-      const int priority = queue_expands[ii] + meta_heur_inflation * int(
+      const int priority = queue_expandss[backward_forward][ii] + meta_heur_inflation * int(
                              best_h / max_heur_dec[ii]);
 
-      if (priority < best_priority) {
-        best_priority = priority;
+      if (priority < best_priority[backward_forward]) {
+        best_priority[backward_forward] = priority;
         best_id = ii;
       }
 
       if (print) {
         printf("                      qid=%d g=%d h=%d f=%d (queue best h=%d)\n", ii,
-               queue_expands[ii], best_h / max_heur_dec[ii], priority, best_h);
+               queue_expandss[backward_forward][ii], best_h / max_heur_dec[ii], priority, best_h);
       }
     }
 
